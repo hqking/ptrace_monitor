@@ -32,13 +32,25 @@ static void showBacktrace(unw_addr_space_t space, void *target) {
     }
 }
 
-static void childStopped(int status)
+static void childStopped(pid_t pid, int status,
+                         unw_addr_space_t space, void *target)
 {
     int signum;
 
     signum = WSTOPSIG(status);
 
-    printf("stopped by signal %d(%s)\n", signum, strsignal(signum));
+    if (signum == SIGTRAP) {
+        if (status >> 8 == (SIGTRAP | PTRACE_EVENT_EXIT << 8)) {
+            int exitStatus;
+            ptrace(PTRACE_GETEVENTMSG, pid, NULL, &exitStatus);
+            printf("child exit(%d)\n", exitStatus);
+
+            showBacktrace(space, target);
+        }
+        // group stop, syscall stop, ptrace events
+    } else if (signum == SIGSEGV) {
+
+    }
 }
 
 static int Mon_TracerSetInitOptions(pid_t pid)
@@ -83,14 +95,8 @@ static int Mon_TracerAttach(pid_t pid)
     return 0;
 }
 
-static void *Mon_TracerWatch(void *arg)
+static void Mon_TracerWatch(TRACEE *tracee)
 {
-    TRACEE *tracee = (TRACEE *)arg;
-    
-    if (Mon_TracerAttach(tracee->pid) != 0) {
-        return "attach faild";
-    }
-
     unw_addr_space_t space = unw_create_addr_space(&_UPT_accessors, __LITTLE_ENDIAN);
     void *target = _UPT_create(tracee->pid);
     
@@ -108,8 +114,7 @@ static void *Mon_TracerWatch(void *arg)
             printf("killed by signal %d\n", WTERMSIG(status));
 
         } else if (WIFSTOPPED(status)) {
-            childStopped(status);
-            showBacktrace(space, target);
+            childStopped(tracee->pid, status, space, target);
 
             ptrace(PTRACE_CONT, tracee->pid, NULL, NULL);
         } else if (WIFCONTINUED(status)) {
@@ -118,6 +123,19 @@ static void *Mon_TracerWatch(void *arg)
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
 
     _UPT_destroy(target);
+}
+
+static void *Mon_TracerMain(void *arg)
+{
+    TRACEE *tracee = (TRACEE *)arg;
+    
+    if (Mon_TracerAttach(tracee->pid) != 0) {
+        return "attach faild";
+    }
+
+    Mon_TracerWatch(tracee);
+
+    return "exit";
 }
 
 int Mon_TracerStart(pid_t child)
@@ -137,7 +155,7 @@ int Mon_TracerStart(pid_t child)
         return -1;
     }
 
-    if (pthread_create(&tracee->thread_id, &attr, &Mon_TracerWatch, tracee) != 0) {
+    if (pthread_create(&tracee->thread_id, &attr, &Mon_TracerMain, tracee) != 0) {
         perror("tracer thread creation");
         free(tracee);
         pthread_attr_destroy(&attr);
