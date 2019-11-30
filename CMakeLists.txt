@@ -4,8 +4,9 @@ project(ptrace_monitor VERSION 0.1.0)
 #include(CTest)
 #enable_testing()
 
-add_executable(ptrace_monitor monitor.c)
+add_executable(ptrace_monitor monitor.c mon_trace.c)
 
+target_link_libraries(ptrace_monitor pthread)
 target_link_libraries(ptrace_monitor unwind)
 target_link_libraries(ptrace_monitor unwind-ptrace unwind-generic)
 
