@@ -15,7 +15,7 @@ static void usage(const char *self)
     printf("%s program [arguments]\n", self);
 }
 
-void show_backtrace(unw_addr_space_t space, void *target) {
+static void show_backtrace(unw_addr_space_t space, void *target) {
     
     unw_word_t ip, sp;
     char funcname[128];
